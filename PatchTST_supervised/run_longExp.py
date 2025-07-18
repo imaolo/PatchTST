@@ -16,6 +16,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_id', type=str, required=True, default='test', help='model id')
     parser.add_argument('--model', type=str, required=True, default='Autoformer',
                         help='model name, options: [Autoformer, Informer, Transformer]')
+    parser.add_argument('--use_moe', type=bool, required=False, default=True,
+                        help='use mixture of experts, only considered for patchtst')
 
     # data loader
     parser.add_argument('--data', type=str, required=True, default='ETTm1', help='dataset type')
@@ -77,6 +79,7 @@ if __name__ == '__main__':
     parser.add_argument('--itr', type=int, default=2, help='experiments times')
     parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
     parser.add_argument('--batch_size', type=int, default=128, help='batch size of train input data')
+    parser.add_argument('--max_samples', type=int, default=None, help='max number of samples to use')
     parser.add_argument('--patience', type=int, default=100, help='early stopping patience')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
     parser.add_argument('--des', type=str, default='test', help='exp description')
@@ -84,6 +87,8 @@ if __name__ == '__main__':
     parser.add_argument('--lradj', type=str, default='type3', help='adjust learning rate')
     parser.add_argument('--pct_start', type=float, default=0.3, help='pct_start')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
+    parser.add_argument('--moe_num', type=int, default=8, help='number of experts of using moe')
+    parser.add_argument('--moe_k', type=int, default=2, help='top k experts if using moe')
 
     # GPU
     parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')

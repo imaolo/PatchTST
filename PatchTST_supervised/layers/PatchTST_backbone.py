@@ -12,6 +12,72 @@ import numpy as np
 from layers.PatchTST_layers import *
 from layers.RevIN import RevIN
 
+class MoE(nn.Module):
+    def __init__(self, input_dim, output_dim, num_experts=8, k=1, hidden_dim=None, activation=nn.GELU, dropout=0.1):
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.num_experts = num_experts
+        self.k = k
+        self.hidden_dim = hidden_dim or 4 * input_dim  # same expansion as FFN
+
+        # Gating network
+        self.gate = nn.Linear(input_dim, num_experts)
+
+        # Experts: each is a 2-layer MLP
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(input_dim, self.hidden_dim),
+                activation,
+                nn.Dropout(dropout),
+                nn.Linear(self.hidden_dim, output_dim)
+            )
+            for _ in range(num_experts)
+        ])
+
+    def forward(self, x):
+        """
+        Args:
+            x: Tensor of shape [batch_size, seq_len, input_dim]
+        Returns:
+            Tensor of shape [batch_size, seq_len, output_dim]
+        """
+        B, T, D = x.shape  # D == input_dim
+
+        # Compute gate scores and select top-k experts per token
+        gate_scores = self.gate(x)                           # [B, T, num_experts]
+        topk_vals, topk_idx = torch.topk(gate_scores, self.k, dim=-1)  # [B, T, k]
+
+        # Softmax over top-k
+        topk_weights = F.softmax(topk_vals, dim=-1)          # [B, T, k]
+
+        # Prepare output tensor
+        output = torch.zeros(B, T, self.output_dim, device=x.device)
+
+        # Compute each expert output for selected tokens
+        for i in range(self.k):
+            idx = topk_idx[:, :, i]                          # [B, T]
+            weight = topk_weights[:, :, i].unsqueeze(-1)     # [B, T, 1]
+
+            # For each token, select its expert
+            expert_outputs = torch.zeros_like(output)
+
+            for expert_id in range(self.num_experts):
+                # Build a mask of where this expert is selected
+                mask = (idx == expert_id)                    # [B, T]
+                if not mask.any():
+                    continue
+
+                x_masked = x[mask]                           # [num_selected_tokens, D]
+                out = self.experts[expert_id](x_masked)      # [num_selected_tokens, D_out]
+                expert_outputs[mask] = out                   # scatter back
+
+            # Weighted sum into final output
+            output += expert_outputs * weight                # [B, T, D_out]
+
+        return output
+
+
 # Cell
 class PatchTST_backbone(nn.Module):
     def __init__(self, c_in:int, context_window:int, target_window:int, patch_len:int, stride:int, max_seq_len:Optional[int]=1024, 
@@ -217,11 +283,15 @@ class TSTEncoderLayer(nn.Module):
         else:
             self.norm_attn = nn.LayerNorm(d_model)
 
-        # Position-wise Feed-Forward
-        self.ff = nn.Sequential(nn.Linear(d_model, d_ff, bias=bias),
-                                get_activation_fn(activation),
-                                nn.Dropout(dropout),
-                                nn.Linear(d_ff, d_model, bias=bias))
+        self.ff = MoE(
+            input_dim=d_model,
+            output_dim=d_model,
+            num_experts=8,
+            k=4,
+            activation=get_activation_fn(activation),
+            dropout=dropout
+        )
+
 
         # Add & Norm
         self.dropout_ffn = nn.Dropout(dropout)

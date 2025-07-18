@@ -1,5 +1,5 @@
 from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Pred
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 data_dict = {
     'ETTh1': Dataset_ETT_hour,
@@ -41,6 +41,8 @@ def data_provider(args, flag):
         timeenc=timeenc,
         freq=freq
     )
+    if args.max_samples is not None and len(data_set) > args.max_samples:
+        data_set = Subset(data_set, range(args.max_samples))
     print(flag, len(data_set))
     data_loader = DataLoader(
         data_set,
